@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 )
@@ -99,8 +98,12 @@ func CleanCache() error {
 
 func PreviewPoster(path string) error {
 	cfg := LoadConfig()
-	cmd := exec.Command("chafa", "-f", cfg.ImageBackend, path)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return renderImage(path, cfg.ImageBackend)
+}
+
+// PreviewWithBackend renders the image at path using the explicitly supplied
+// backend string (e.g. the value of the --backend CLI flag). On Windows the
+// backend argument is ignored and the built-in sixel renderer is always used.
+func PreviewWithBackend(path, backend string) error {
+	return renderImage(path, backend)
 }

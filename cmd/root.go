@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -322,7 +321,11 @@ var rootCmd = &cobra.Command{
 				if dlPath == "" {
 					dlPath = homeDir
 				}
-				err = core.Download(homeDir, dlPath, name, streamURL, referer, USER_AGENT, subtitles, ctx.Debug)
+				if strings.EqualFold(providerName, "youtube") {
+					err = core.DownloadYTDLP(homeDir, dlPath, name, streamURL, referer, USER_AGENT, ctx.Debug)
+				} else {
+					err = core.Download(homeDir, dlPath, name, streamURL, referer, USER_AGENT, subtitles, ctx.Debug)
+				}
 				if err != nil {
 					fmt.Println("Error downloading:", err)
 					return err
@@ -426,9 +429,6 @@ var previewCmd = &cobra.Command{
 
 		fullPath := filepath.Join(cacheFlag, safeTitle+".jpg")
 
-		c := exec.Command("chafa", "-f", backendFlag, fullPath)
-		c.Stdout = os.Stdout
-		c.Stderr = os.Stderr
-		c.Run()
+		core.PreviewWithBackend(fullPath, backendFlag)
 	},
 }
