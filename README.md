@@ -145,10 +145,10 @@ luffy [query] [flags]
 | `--episodes` | `-e` | (Series only) Specify a single episode (`5`) or a range (`1-5`). |
 | `--best` | `-b` | Auto-select the best available quality (skips fzf quality prompt). |
 | `--provider` | `-p` | Select provider (e.g. `sflix`, `braflix`). Overrides config. |
-| `--history` | NA | Browse watch history and resume a previous title. |
-| `--recommend` | NA | Get personalised recommendations based on watch history. |
+| `--history` | `-H` | Browse watch history and resume a previous title. |
+| `--recommend` | `-r` | Get personalised recommendations based on watch history. |
 | `--show-image` | NA | Show poster previews in fzf (requires chafa and a supported terminal). |
-| `--debug` | NA | Print debug information (URLs, decryption steps, etc.). |
+| `--debug` | `-d` | Print debug information (URLs, decryption steps, etc.). |
 | `--help` | `-h` | Show help message and exit. |
 
 ### Playback Controls
