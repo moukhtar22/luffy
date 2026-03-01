@@ -20,6 +20,10 @@ type HistoryEntry struct {
 	URL      string // provider media URL (used to resume)
 	Provider string // provider name (e.g. "flixhq", "sflix")
 
+	// PositionSecs is the playback position in seconds as written by mpv's
+	// watch-later file (e.g. 1234.56).  0 means start / not tracked.
+	PositionSecs float64
+
 	WatchedAt time.Time
 }
 
@@ -67,21 +71,24 @@ func (db *DB) Close() error {
 func (db *DB) migrate() error {
 	// Initial table creation.
 	_, err := db.conn.Exec(`CREATE TABLE IF NOT EXISTS history (
-		id          INTEGER PRIMARY KEY AUTOINCREMENT,
-		title       TEXT    NOT NULL,
-		season      INTEGER NOT NULL DEFAULT 0,
-		episode     INTEGER NOT NULL DEFAULT 0,
-		ep_name     TEXT    NOT NULL DEFAULT '',
-		url         TEXT    NOT NULL,
-		provider    TEXT    NOT NULL DEFAULT '',
-		watched_at  DATETIME NOT NULL
+		id            INTEGER PRIMARY KEY AUTOINCREMENT,
+		title         TEXT    NOT NULL,
+		season        INTEGER NOT NULL DEFAULT 0,
+		episode       INTEGER NOT NULL DEFAULT 0,
+		ep_name       TEXT    NOT NULL DEFAULT '',
+		url           TEXT    NOT NULL,
+		provider      TEXT    NOT NULL DEFAULT '',
+		position_secs REAL    NOT NULL DEFAULT 0,
+		watched_at    DATETIME NOT NULL
 	)`)
 	if err != nil {
 		return err
 	}
 
-	// Add provider column to existing databases that predate it.
+	// Migrations for databases that predate certain columns.
 	_, _ = db.conn.Exec(`ALTER TABLE history ADD COLUMN provider TEXT NOT NULL DEFAULT ''`)
+	_, _ = db.conn.Exec(`ALTER TABLE history ADD COLUMN position_pct REAL NOT NULL DEFAULT 0`)
+	_, _ = db.conn.Exec(`ALTER TABLE history ADD COLUMN position_secs REAL NOT NULL DEFAULT 0`)
 
 	return nil
 }
@@ -89,11 +96,28 @@ func (db *DB) migrate() error {
 // AddEntry inserts a new history record.
 func (db *DB) AddEntry(e HistoryEntry) error {
 	_, err := db.conn.Exec(
-		`INSERT INTO history (title, season, episode, ep_name, url, provider, watched_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		e.Title, e.Season, e.Episode, e.EpName, e.URL, e.Provider, e.WatchedAt.UTC(),
+		`INSERT INTO history (title, season, episode, ep_name, url, provider, position_secs, watched_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		e.Title, e.Season, e.Episode, e.EpName, e.URL, e.Provider, e.PositionSecs, e.WatchedAt.UTC(),
 	)
 	return err
+}
+
+// GetLastPosition returns the most recently recorded playback position in
+// seconds for the given title, season and episode. Returns 0 if no record is
+// found.
+func (db *DB) GetLastPosition(title string, season, episode int) (float64, error) {
+	var secs float64
+	err := db.conn.QueryRow(
+		`SELECT position_secs FROM history
+		 WHERE title = ? AND season = ? AND episode = ?
+		 ORDER BY watched_at DESC LIMIT 1`,
+		title, season, episode,
+	).Scan(&secs)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return secs, err
 }
 
 // ShowSummary is one entry per unique show (title+url), carrying the most

@@ -215,13 +215,10 @@ var rootCmd = &cobra.Command{
 				}
 			}
 
-			currentAction := actionFlag
+			currentAction := strings.ToLower(actionFlag)
 			if currentAction == "" {
-				actions := []string{"Play", "Download"}
-				actIdx := core.Select("Action:", actions)
-				currentAction = actions[actIdx]
+				currentAction = "play"
 			}
-			currentAction = strings.ToLower(currentAction)
 
 			if ctx.ContentType == core.Movie {
 				fmt.Printf("\nProcessing: %s\n", ctx.Title)
@@ -248,14 +245,15 @@ var rootCmd = &cobra.Command{
 					if err != nil {
 						return err
 					}
-					action, err := core.PlayWithControls(streamURL, ctx.Title, referer, USER_AGENT, subtitles, debugFlag)
+					lastPos := getLastPosition(histDB, ctx.Title, 0, 0)
+					result, err := core.PlayWithControls(streamURL, ctx.Title, referer, USER_AGENT, subtitles, debugFlag, lastPos)
 					if err != nil {
 						return err
 					}
-					if action == core.PlaybackQuit {
-						saveHistory(histDB, ctx, histProviderName, 0, 0, "", debugFlag)
+					saveHistory(histDB, ctx, histProviderName, 0, 0, "", result.PositionSecs, debugFlag)
+					if result.Action == core.PlaybackQuit {
+						return nil
 					}
-					return nil
 				}
 				processStream := buildProcessStream(ctx, cfg, histProviderName, currentAction, histDB, debugFlag, bestFlag)
 				return processStream(link, ctx.Title, 0, 0, "")
@@ -423,13 +421,10 @@ var rootCmd = &cobra.Command{
 				}
 			}
 
-			currentAction := actionFlag
+			currentAction := strings.ToLower(actionFlag)
 			if currentAction == "" {
-				actions := []string{"Play", "Download"}
-				actIdx := core.Select("Action:", actions)
-				currentAction = actions[actIdx]
+				currentAction = "play"
 			}
-			currentAction = strings.ToLower(currentAction)
 
 			if ctx.ContentType == core.Movie {
 				fmt.Printf("\nProcessing: %s\n", ctx.Title)
@@ -456,14 +451,15 @@ var rootCmd = &cobra.Command{
 					if err != nil {
 						return err
 					}
-					action, err := core.PlayWithControls(streamURL, ctx.Title, referer, USER_AGENT, subtitles, debugFlag)
+					lastPos := getLastPosition(histDB, ctx.Title, 0, 0)
+					result, err := core.PlayWithControls(streamURL, ctx.Title, referer, USER_AGENT, subtitles, debugFlag, lastPos)
 					if err != nil {
 						return err
 					}
-					if action == core.PlaybackQuit {
-						saveHistory(histDB, ctx, providerName, 0, 0, "", debugFlag)
+					saveHistory(histDB, ctx, providerName, 0, 0, "", result.PositionSecs, debugFlag)
+					if result.Action == core.PlaybackQuit {
+						return nil
 					}
-					return nil
 				}
 				processStream := buildProcessStream(ctx, cfg, providerName, currentAction, histDB, debugFlag, bestFlag)
 				return processStream(link, ctx.Title, 0, 0, "")
@@ -656,13 +652,10 @@ var rootCmd = &cobra.Command{
 			}
 		}
 
-		currentAction := actionFlag
+		currentAction := strings.ToLower(actionFlag)
 		if currentAction == "" {
-			actions := []string{"Play", "Download"}
-			actIdx := core.Select("Action:", actions)
-			currentAction = actions[actIdx]
+			currentAction = "play"
 		}
-		currentAction = strings.ToLower(currentAction)
 
 		if ctx.ContentType == core.Movie {
 			fmt.Printf("\nProcessing: %s\n", ctx.Title)
@@ -693,14 +686,15 @@ var rootCmd = &cobra.Command{
 				if err != nil {
 					return err
 				}
-				action, err := core.PlayWithControls(streamURL, ctx.Title, referer, USER_AGENT, subtitles, debugFlag)
+				lastPos := getLastPosition(histDB, ctx.Title, 0, 0)
+				result, err := core.PlayWithControls(streamURL, ctx.Title, referer, USER_AGENT, subtitles, debugFlag, lastPos)
 				if err != nil {
 					return err
 				}
-				if action == core.PlaybackQuit {
-					saveHistory(histDB, ctx, providerName, 0, 0, "", debugFlag)
+				saveHistory(histDB, ctx, providerName, 0, 0, "", result.PositionSecs, debugFlag)
+				if result.Action == core.PlaybackQuit {
+					return nil
 				}
-				return nil
 			}
 			processStream := buildProcessStream(ctx, cfg, providerName, currentAction, histDB, debugFlag, bestFlag)
 			if err := processStream(link, ctx.Title, 0, 0, ""); err != nil {
@@ -872,19 +866,31 @@ func getLinkForEpisode(ewn episodeWithNum, prov core.Provider, providerName stri
 	return prov.GetLink(selectedServer.ID)
 }
 
+// getLastPosition returns the saved playback position in seconds for a
+// title/season/episode, or 0 if histDB is nil or no record exists.
+func getLastPosition(histDB *core.DB, title string, season, episode int) float64 {
+	if histDB == nil {
+		return 0
+	}
+	secs, _ := histDB.GetLastPosition(title, season, episode)
+	return secs
+}
+
 // saveHistory writes a history entry if histDB is non-nil.
-func saveHistory(histDB *core.DB, ctx *core.Context, providerName string, season, episode int, epName string, debugMode bool) {
+// positionSecs is the playback position in seconds as reported by mpv's watch-later file.
+func saveHistory(histDB *core.DB, ctx *core.Context, providerName string, season, episode int, epName string, positionSecs float64, debugMode bool) {
 	if histDB == nil {
 		return
 	}
 	entry := core.HistoryEntry{
-		Title:     ctx.Title,
-		Season:    season,
-		Episode:   episode,
-		EpName:    epName,
-		URL:       ctx.URL,
-		Provider:  providerName,
-		WatchedAt: time.Now(),
+		Title:        ctx.Title,
+		Season:       season,
+		Episode:      episode,
+		EpName:       epName,
+		URL:          ctx.URL,
+		Provider:     providerName,
+		PositionSecs: positionSecs,
+		WatchedAt:    time.Now(),
 	}
 	if herr := histDB.AddEntry(entry); herr != nil && debugMode {
 		fmt.Printf("Warning: could not save history: %v\n", herr)
@@ -913,11 +919,14 @@ func buildProcessStream(
 			if debugMode {
 				fmt.Printf("Stream URL: %s\n", streamURL)
 			}
-			err = core.Play(streamURL, name, referer, USER_AGENT, subtitles, debugMode)
-			if err != nil {
-				fmt.Println("Error playing:", err)
-				return err
+			lastPos := getLastPosition(histDB, ctx.Title, season, episode)
+			posSecs, playErr := core.Play(streamURL, name, referer, USER_AGENT, subtitles, debugMode, lastPos)
+			if playErr != nil {
+				fmt.Println("Error playing:", playErr)
+				return playErr
 			}
+			saveHistory(histDB, ctx, providerName, season, episode, epName, posSecs, debugMode)
+			return nil
 		case "download":
 			dlPath := cfg.DlPath
 			homeDir, _ := os.UserHomeDir()
@@ -934,7 +943,7 @@ func buildProcessStream(
 			fmt.Println("Unknown action:", currentAction)
 		}
 
-		saveHistory(histDB, ctx, providerName, season, episode, epName, debugMode)
+		saveHistory(histDB, ctx, providerName, season, episode, epName, 0, debugMode)
 		return nil
 	}
 }
@@ -985,15 +994,16 @@ func playSeriesWithControls(
 			fmt.Printf("Stream URL: %s\n", streamURL)
 		}
 
-		action, err := core.PlayWithControls(streamURL, ctx.Title+" - "+ep.Name, referer, USER_AGENT, subtitles, debugMode)
+		lastPos := getLastPosition(histDB, ctx.Title, seasonNum, ewn.num)
+		result, err := core.PlayWithControls(streamURL, ctx.Title+" - "+ep.Name, referer, USER_AGENT, subtitles, debugMode, lastPos)
 		if err != nil {
 			fmt.Println("Player error:", err)
 		}
 
 		// Save history after playback.
-		saveHistory(histDB, ctx, providerName, seasonNum, ewn.num, ep.Name, debugMode)
+		saveHistory(histDB, ctx, providerName, seasonNum, ewn.num, ep.Name, result.PositionSecs, debugMode)
 
-		switch action {
+		switch result.Action {
 		case core.PlaybackQuit:
 			return nil
 		case core.PlaybackNext:
